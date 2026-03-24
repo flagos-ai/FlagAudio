@@ -195,7 +195,7 @@ def pytest_configure(config):
         handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
         recordLogger.addHandler(handler)
         recordLogger.setLevel(logging.INFO)
-        emit_record_logger("Benchmark record logger enabled")
+        # emit_record_logger("Benchmark record logger enabled")
 
 
 BUILTIN_MARKS = {
