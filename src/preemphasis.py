@@ -1,4 +1,5 @@
 import torch
+import torchaudio
 import triton
 import triton.language as tl
 
@@ -36,21 +37,39 @@ def preemphasis_kernel(
 
 
 def preemphasis_triton(waveform: torch.Tensor, coeff: float = 0.97) -> torch.Tensor:
-    waveform_out = torch.empty_like(waveform).reshape(-1, waveform.shape[-1])
+    waveform_out = waveform.clone()
+    waveform_view = waveform_out.reshape(-1, waveform.shape[-1])
 
     last_dim_len = waveform.shape[-1]
+    total_elements = waveform.numel()
     BLOCK_SIZE = 1024
-    grid = (triton.cdiv(last_dim_len, BLOCK_SIZE), waveform_out.size(1))
+    grid = (triton.cdiv(last_dim_len, BLOCK_SIZE), waveform_view.size(1))
 
     preemphasis_kernel[grid](
-        waveform,
+        waveform_view,
         waveform_out,
         coeff,
-        waveform.stride(0),
-        waveform.stride(1),
+        waveform_view.stride(0),
+        waveform_view.stride(1),
         waveform_out.stride(0),
         waveform_out.stride(1),
         last_dim_len,
         BLOCK_SIZE=BLOCK_SIZE,
     )
-    return waveform_out.reshape(waveform.shape)
+    return waveform_out
+
+
+def test_op():
+    waveform = torch.tensor([[0.5, 1.0, 1.5], [2.0, 2.5, 3.0]], dtype=torch.float32).to(
+        "cuda"
+    )
+    coeff = 0.97
+    output_tensor = preemphasis_triton(waveform, coeff)
+    golden_tensor = torchaudio.functional.preemphasis(waveform, coeff)
+    torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)
+    print(f"Output tensor: {output_tensor}")
+    print(f"Golden tensor: {golden_tensor}")
+
+
+if __name__ == "__main__":
+    test_op()

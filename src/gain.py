@@ -1,4 +1,5 @@
 import torch
+import torchaudio
 import triton
 import triton.language as tl
 
@@ -30,7 +31,7 @@ def gain_triton(input_tensor: torch.Tensor, gain_db: float = 1.0) -> torch.Tenso
 
     output_tensor = torch.empty_like(input_tensor)
 
-    BLOCK_SIZE = 1024
+    BLOCK_SIZE = 32
     n_elements = input_tensor.numel()
     grid_size = (triton.cdiv(n_elements, BLOCK_SIZE),)
 
@@ -42,3 +43,17 @@ def gain_triton(input_tensor: torch.Tensor, gain_db: float = 1.0) -> torch.Tenso
         BLOCK_SIZE=BLOCK_SIZE,
     )
     return output_tensor
+
+
+def test_op():
+    input_tensor = torch.tensor([0.5, 1.0, 1.5], dtype=torch.float32).to("cuda")
+    gain_db = 6.0
+    output_tensor = gain_triton(input_tensor, gain_db)
+    golden_tensor = torchaudio.functional.gain(input_tensor, gain_db)
+    torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)
+    print(f"Output tensor: {output_tensor}")
+    print(f"Golden tensor: {golden_tensor}")
+
+
+if __name__ == "__main__":
+    test_op()

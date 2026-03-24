@@ -1,10 +1,12 @@
 import torch
+import torchaudio
 import triton
 import triton.language as tl
 from typing import Union
 
 
 def _get_mask_param(mask_param: int, p: float, dim_size: int) -> int:
+    """辅助函数，计算实际允许的最大掩码长度"""
     if p == 1.0:
         return mask_param
     max_v = min(mask_param, int(dim_size * p))
@@ -18,6 +20,7 @@ def mask_along_axis_iid_kernel(
     value_ptr,
     min_value_ptr,
     mask_value_ptr,
+    batch_size,
     dim1,
     dim2,
     is_freq: tl.constexpr,
@@ -36,6 +39,7 @@ def mask_along_axis_iid_kernel(
     mask_end = mask_start + tl.load(value_ptr + batch_id).to(tl.int64)
     mask_val = tl.load(mask_value_ptr)
 
+    # 根据轴判断当前元素是否在掩码区间内
     if is_freq:
         in_mask = (dim1_id >= mask_start) & (dim1_id < mask_end)
     else:
@@ -66,18 +70,22 @@ def mask_along_axis_iid_triton(
     if not 0.0 <= p <= 1.0:
         raise ValueError(f"The value of p must be between 0.0 and 1.0 ({p} given).")
 
+    # 计算有效 mask_param
     axis_size = specgrams.size(axis)
     effective_mask_param = _get_mask_param(mask_param, p, axis_size)
     if effective_mask_param < 1:
         return specgrams
 
+    # 准备批次维度：将所有前面的维度合并为批次维度
     original_shape = specgrams.shape
-    specgrams_2d = specgrams.reshape(
+    specgrams_2d = specgrams.contiguous().reshape(
         -1, original_shape[-2] * original_shape[-1]
     )
     batch_size, inner_dim = specgrams_2d.shape
+    # 分配输出张量
     output = torch.empty_like(specgrams_2d)
 
+    # 生成随机值：value 和 min_value，形状 (N,)
     device = specgrams.device
     dtype = specgrams.dtype
 
@@ -88,19 +96,48 @@ def mask_along_axis_iid_triton(
         mask_value = torch.tensor([mask_value], device=device, dtype=dtype)
 
     is_freq = axis == dim - 2
-    BLOCK_SIZE = 1024
+    BLOCK_SIZE = 16
+    # 计算网格大小
     grid = (triton.cdiv(inner_dim, BLOCK_SIZE), batch_size)
-
+    # 启动内核
     mask_along_axis_iid_kernel[grid](
         specgrams_2d,
         output,
         value,
         min_value,
         mask_value,
+        batch_size,
         original_shape[-2],
         original_shape[-1],
         is_freq=is_freq,
         BLOCK_SIZE=BLOCK_SIZE,
     )
 
+    # 恢复原始形状
     return output.reshape(original_shape)
+
+
+def mock_rand(size, **kwargs):
+    return torch.ones(size, **kwargs) * 0.7
+
+
+def test_op():
+    specgram = torch.rand(2, 2, 9, 4, device="cuda")
+    mask_param = 3
+    mask_value = 0.0
+    axis = 3
+    p = 1
+    torch.rand = mock_rand
+    output_triton = mask_along_axis_iid_triton(
+        specgram, mask_param, mask_value, axis, p
+    )
+    golden_output = torchaudio.functional.mask_along_axis_iid(
+        specgram, mask_param, mask_value, axis, p
+    )
+    torch.testing.assert_close(output_triton, golden_output, rtol=1e-5, atol=1e-8)
+    print(f"Output tensor: {output_triton}")
+    print(f"Golden tensor: {golden_output}")
+
+
+if __name__ == "__main__":
+    test_op()
