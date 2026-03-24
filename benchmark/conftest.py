@@ -5,7 +5,7 @@ import os
 import pytest
 import torch
 
-# import flag_gems
+import flag_audio
 from benchmark.attri_util import (
     ALL_AVAILABLE_METRICS,
     BOOL_DTYPES,
@@ -18,10 +18,24 @@ from benchmark.attri_util import (
     OperationAttribute,
     get_recommended_shapes,
 )
-# from flag_gems.runtime import torch_device_fn
+from flag_audio.runtime import torch_device_fn
 
-# device = flag_gems.device
-# vendor_name = flag_gems.vendor_name
+device = flag_audio.device
+vendor_name = flag_audio.vendor_name
+recordLogger = logging.getLogger("flag_audio_benchmark")
+recordLogger.propagate = False
+
+
+def emit_record_logger(message: str) -> None:
+    if recordLogger.handlers:
+        handler = recordLogger.handlers[0]
+        if getattr(handler, "stream", None) is None:
+            handler.acquire()
+            try:
+                handler.stream = handler._open()
+            finally:
+                handler.release()
+    recordLogger.info(message)
 
 
 class BenchConfig:
@@ -30,11 +44,11 @@ class BenchConfig:
         self.bench_level = BenchLevel.COMPREHENSIVE
         self.warm_up = DEFAULT_WARMUP_COUNT
         self.repetition = DEFAULT_ITER_COUNT
-        # if (
-        #     vendor_name == "kunlunxin"
-        # ):  # Speed Up Benchmark Test, Big Shape Will Cause Timeout
-        #     self.warm_up = 1
-        #     self.repetition = 1
+        if (
+            vendor_name == "kunlunxin"
+        ):  # Speed Up Benchmark Test, Big Shape Will Cause Timeout
+            self.warm_up = 1
+            self.repetition = 1
         self.record_log = False
         self.user_desired_dtypes = None
         self.user_desired_metrics = None
@@ -48,15 +62,15 @@ Config = BenchConfig()
 def pytest_addoption(parser):
     parser.addoption(
         (
-            "--mode" #if vendor_name != "kunlunxin" else "--fg_mode"
+            "--mode" if vendor_name != "kunlunxin" else "--fg_mode"
         ),  # TODO: fix pytest-* common --mode args
         action="store",
         default="kernel",
         required=False,
         choices=["kernel", "operator", "wrapper"],
         help=(
-            "Specify how to measure latency, 'kernel' for device kernel, ",
-            "'operator' for end2end operator or 'wrapper' for runtime wrapper.",
+            "Specify how to measure latency, 'kernel' for device kernel, "
+            "'operator' for end2end operator or 'wrapper' for runtime wrapper."
         ),
     )
 
@@ -133,7 +147,7 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     global Config  # noqa: F824
     mode_value = config.getoption(
-        "--mode" #if vendor_name != "kunlunxin" else "--fg_mode"
+        "--mode" if vendor_name != "kunlunxin" else "--fg_mode"
     )
     Config.mode = BenchMode(mode_value)
 
@@ -165,12 +179,23 @@ def pytest_configure(config):
             for arg in config.invocation_params.args
         ]
 
-        logging.basicConfig(
-            filename="result_{}.log".format("_".join(cmd_args)).replace("_-", "-"),
-            filemode="w",
-            level=logging.INFO,
-            format="[%(levelname)s] %(message)s",
-        )
+        log_file = "result_{}.log".format("_".join(cmd_args)).replace("_-", "-")
+
+        for h in list(recordLogger.handlers):
+            recordLogger.removeHandler(h)
+            try:
+                h.close()
+            except Exception as e:
+                import warnings
+
+                warnings.warn(f"Failed to close handler: {e}")
+
+        handler = logging.FileHandler(log_file, mode="w", encoding="utf-8", delay=False)
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+        recordLogger.addHandler(handler)
+        recordLogger.setLevel(logging.INFO)
+        emit_record_logger("Benchmark record logger enabled")
 
 
 BUILTIN_MARKS = {
@@ -201,15 +226,14 @@ def setup_once(request):
 @pytest.fixture(scope="function", autouse=True)
 def clear_function_cache():
     yield
-    # torch_device_fn.empty_cache()
-    torch.cuda.empty_cache()
+    torch_device_fn.empty_cache()
 
 
 @pytest.fixture(scope="module", autouse=True)
 def clear_module_cache():
     yield
-    # torch_device_fn.empty_cache()
-    torch.cuda.empty_cache()
+    torch_device_fn.empty_cache()
+
 
 @pytest.fixture()
 def extract_and_log_op_attributes(request):
@@ -238,6 +262,5 @@ def extract_and_log_op_attributes(request):
         pytest.skip("Skipping benchmark due to the query parameter.")
 
     yield
-
     if Config.record_log and op_attributes:
-        logging.info(json.dumps(op_attributes, indent=2))
+        emit_record_logger(json.dumps(op_attributes, indent=2))

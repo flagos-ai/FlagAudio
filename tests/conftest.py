@@ -4,13 +4,24 @@ import os
 from datetime import datetime
 
 import pytest
+import torch
 
-# import flag_gems
+import flag_audio
 
-device = "cuda" #flag_gems.device
+device = flag_audio.device
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 filename = f"test_detail_and_result_{timestamp}.json"
+
+DEFAULT_L1_N_START = 100
+DEFAULT_L1_N_END = 1000
+DEFAULT_L1_N_STEP = 100
+L1_n_start = DEFAULT_L1_N_START
+L1_n_end = DEFAULT_L1_N_END
+L1_n_step = DEFAULT_L1_N_STEP
+TO_CPU = False
+QUICK_MODE = False
+RECORD_LOG = False
 
 
 def pytest_addoption(parser):
@@ -24,7 +35,9 @@ def pytest_addoption(parser):
     )
     parser.addoption(
         (
-            "--mode" #if flag_gems.vendor_name != "kunlunxin" else "--fg_mode"
+            "--mode"
+            if not (flag_audio.vendor_name == "kunlunxin" and torch.__version__ < "2.5")
+            else "--fg_mode"
         ),  # TODO: fix pytest-* common --mode args,
         action="store",
         default="normal",
@@ -41,6 +54,23 @@ def pytest_addoption(parser):
         help="tests function param recorded in log files or not",
     )
 
+    parser.addoption(
+        "--L1_n_start",
+        default=DEFAULT_L1_N_START,
+        help="Number of reps for each benchmark run.",
+    )
+
+    parser.addoption(
+        "--L1_n_end",
+        default=DEFAULT_L1_N_END,
+        help="Number of reps for each benchmark run.",
+    )
+
+    parser.addoption(
+        "--L1_n_step",
+        default=DEFAULT_L1_N_STEP,
+        help="Number of reps for each benchmark run.",
+    )
 
 def pytest_configure(config):
     global TO_CPU
@@ -51,6 +81,17 @@ def pytest_configure(config):
 
     global RECORD_LOG
     RECORD_LOG = config.getoption("--record") == "log"
+    
+    global L1_n_start
+    L1_n_start = config.getoption("--L1_n_start")
+
+    global L1_n_end
+    L1_n_end = config.getoption("--L1_n_end")
+
+    global L1_n_step 
+    L1_n_step = config.getoption("--L1_n_step")
+    
+    
     if RECORD_LOG:
         global RUNTEST_INFO, BUILTIN_MARKS, REGISTERED_MARKERS
         RUNTEST_INFO = {}
@@ -127,10 +168,30 @@ def pytest_runtest_protocol(item, nextitem):
     test_results[item.nodeid]["opname"] = operator_marks
 
 
+def get_skipped_reason(report):
+    if hasattr(report.longrepr, "reprcrash"):
+        return report.longrepr.reprcrash.message
+    elif isinstance(report.longrepr, tuple):
+        return report.longrepr[2]
+    else:
+        return str(report.longrepr)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_logreport(report):
-    if report.when == "call":
+    if report.when == "setup":
+        if report.outcome == "skipped":
+            reason = get_skipped_reason(report)
+            test_results[report.nodeid]["result"] = "skipped"
+            test_results[report.nodeid]["skipped_reason"] = reason
+
+    elif report.when == "call":
         test_results[report.nodeid]["result"] = report.outcome
+        if report.outcome == "skipped":
+            reason = get_skipped_reason(report)
+            test_results[report.nodeid]["skipped_reason"] = reason
+        else:
+            test_results[report.nodeid]["skipped_reason"] = None
 
 
 def pytest_terminal_summary(terminalreporter):

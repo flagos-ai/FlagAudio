@@ -1,6 +1,5 @@
 import gc
 import importlib
-import logging
 import os
 import time
 from typing import Any, Generator, List, Optional, Tuple
@@ -10,7 +9,7 @@ import torch
 import triton
 import yaml
 
-# import flag_gems
+import flag_audio
 
 from .attri_util import (
     BOOL_DTYPES,
@@ -26,20 +25,19 @@ from .attri_util import (
     OperationAttribute,
     check_metric_dependencies,
 )
-from .conftest import Config
+from .conftest import Config, emit_record_logger
 
-# torch_backend_device = flag_gems.runtime.torch_backend_device
-torch_device_fn =  torch.cuda #flag_gems.runtime.torch_device_fn
-device = "cuda" #flag_gems.device
-# vendor_name = flag_gems.vendor_name
+torch_backend_device = flag_audio.runtime.torch_backend_device
+torch_device_fn = flag_audio.runtime.torch_device_fn
+device = flag_audio.device
+vendor_name = flag_audio.vendor_name
 if device == "musa":
     torch.backends.mudnn.allow_tf32 = False
 elif device == "npu":
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
 else:
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
+    torch_backend_device.matmul.allow_tf32 = False
 
 
 def SkipVersion(module_name, skip_pattern):
@@ -84,14 +82,16 @@ class Benchmark:
         torch_op,
         dtypes=None,
         is_backward=False,
+        is_inplace=False,
         **kwargs,
     ):
         self.op_name = op_name
-        if is_backward:
-            self.op_name += " backward"
+        if is_backward and self.op_name.find("_backward") == -1:
+            self.op_name += "_backward"
         self.torch_op = torch_op
         self.gems_op = None
         self.is_backward = is_backward
+        self.is_inplace = is_inplace
         self._input_iter = None
 
         # Theoretical supported dtypes, metrics for the operation.
@@ -190,14 +190,14 @@ class Benchmark:
                         self.shapes = self.DEFAULT_SHAPES
 
             self.shapes = [tuple(shape) for shape in self.shapes]
-            # if vendor_name == "kunlunxin":
-            #     if self.op_name in ["isin", "nonzero"]:
-            #         # isin oom  # nonzero oot
-            #         import math
+            if vendor_name == "kunlunxin":
+                if self.op_name in ["isin", "nonzero"]:
+                    # isin oom  # nonzero oot
+                    import math
 
-            #         self.shapes = [
-            #             shape for shape in self.shapes if math.prod(shape) < 1024 * 1024
-            #         ]
+                    self.shapes = [
+                        shape for shape in self.shapes if math.prod(shape) < 1024 * 1024
+                    ]
 
             # merge shapes from subclass If subclass has `set_more_shapes`, call it to merge shapes
             if (
@@ -208,6 +208,10 @@ class Benchmark:
             ):
                 # Merge shapes using subclass-specific logic
                 additional_shapes = self.set_more_shapes()
+                if vendor_name == "kunlunxin":
+                    if self.op_name in ["cummax"]:
+                        additional_shapes = []
+
                 # self.shapes = additional_shapes
                 if additional_shapes:
                     self.shapes = list(dict.fromkeys(self.shapes + additional_shapes))
@@ -246,11 +250,11 @@ class Benchmark:
         self.mode = Config.mode
         self.set_dtypes(Config.user_desired_dtypes)
         self.set_metrics(Config.user_desired_metrics)
-        # if vendor_name == "kunlunxin":
-        #     Config.shape_file = os.path.join(
-        #         os.path.dirname(__file__),
-        #         "../src/flag_gems/runtime/backend/_kunlunxin/core_shapes.yaml",
-        #     )  # Speed Up Benchmark Test, Big Shape Will Cause Timeout
+        if vendor_name == "kunlunxin":
+            Config.shape_file = os.path.join(
+                os.path.dirname(__file__),
+                "../src/flag_audio/runtime/backend/_kunlunxin/core_shapes.yaml",
+            )  # Speed Up Benchmark Test, Big Shape Will Cause Timeout
         self.set_shapes(Config.shape_file)
 
     def set_gems(self, gems_op):
@@ -258,7 +262,6 @@ class Benchmark:
 
     def get_latency(self, op, *args, **kwargs):
         fn = lambda: op(*args, **kwargs)
-        # print("op=====",op)
         if self.is_backward:
             out = fn()
             dout = torch.randn_like(out)
@@ -267,9 +270,6 @@ class Benchmark:
             fn = lambda: torch.autograd.grad(
                 (out,), xs, grad_outputs=(dout,), retain_graph=True
             )
-        # Config.mode = BenchMode.OPERATOR
-        # print("Config.mode====",Config.mode)
-
         if Config.mode == BenchMode.OPERATOR:
             for i in range(Config.warm_up):
                 fn()
@@ -286,8 +286,6 @@ class Benchmark:
                 if device == "musa"
                 else triton.testing.do_bench
             )
-            # print("111111===triton.testing.do_bench")
-            # print("fn=====",fn)
             latency = do_bench(
                 fn,
                 warmup=Config.warm_up,
@@ -307,7 +305,6 @@ class Benchmark:
         else:
             raise ValueError("Undefined Value of Benchmark Mode.")
         # average latency in ms
-        # print("latency====",latency)
         return latency
 
     def get_gbps(self, args, latency=None):
@@ -374,7 +371,7 @@ class Benchmark:
                 shape_desc=self.shape_desc,
             )
             print(attri)
-            logging.info(attri.to_dict())
+            emit_record_logger(attri.to_dict())
             return
         self.init_user_config()
         for dtype in self.to_bench_dtypes:
@@ -385,25 +382,19 @@ class Benchmark:
                     args, kwargs = self.unpack_to_args_kwargs(input)
                     metric.shape_detail = self.record_shapes(*args, **kwargs)
                     if "latency_base" in self.to_bench_metrics:
-                        # print("metric.latency_base=0===",metric.latency_base)
-                        # print("self.torch_op====",self.torch_op)
                         metric.latency_base = self.get_latency(
                             self.torch_op, *args, **kwargs
                         )
-                        # print("metric.latency_base=1===",metric.latency_base)
                     if "latency" in self.to_bench_metrics:
                         if self.gems_op:
-                            # print("metric.latency==0==",metric.latency)
-                            # print("self.gems_op:====",self.gems_op)
                             metric.latency = self.get_latency(
                                 self.gems_op, *args, **kwargs
                             )
-                            # print("metric.latency==1==",metric.latency)
-                        # else:
-                        #     with flag_gems.use_gems():
-                        #         metric.latency = self.get_latency(
-                        #             self.torch_op, *args, **kwargs
-                        #         )
+                        else:
+                            with flag_audio.use_gems():
+                                metric.latency = self.get_latency(
+                                    self.torch_op, *args, **kwargs
+                                )
                     if "speedup" in self.to_bench_metrics:
                         metric.speedup = metric.latency_base / metric.latency
                     if "gbps" in self.to_bench_metrics:
@@ -433,7 +424,7 @@ class Benchmark:
                 result=metrics,
             )
             print(result)
-            logging.info(result.to_json())
+            emit_record_logger(result.to_json())
 
 
 class GenericBenchmark(Benchmark):
@@ -494,6 +485,19 @@ class GenericBenchmarkExcluse3D(GenericBenchmarkFilterShapes):
 
     def __init__(self, *args, **kwargs):
         super().__init__(exclude_dims=3, *args, **kwargs)
+
+
+class GenericBenchmark4DOnly(GenericBenchmarkFilterShapes):
+    """
+    4d shapes only
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(exclude_dims=None, *args, **kwargs)
+
+    def set_more_shapes(self):
+        shapes = super().set_more_shapes()
+        return [shape for shape in shapes if len(shape) == 4]
 
 
 class GenericBenchmark2DOnly(GenericBenchmarkFilterShapes):

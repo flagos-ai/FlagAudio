@@ -1,0 +1,53 @@
+Metadata-Version: 2.4
+Name: flag_audio
+Version: 0.1.0
+Summary: FlagAudio is a function library written in Triton.
+Author-email: Bin Zhang <842884726@qq.com>, Haochen Zhang <xxx@xxx.com>
+License: Apache Software License
+Project-URL: Homepage, https://github.com/flagos-ai/FlagAudio
+Classifier: Development Status :: 3 - Alpha
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: Apache Software License
+Requires-Python: >=3.8.0
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: torch>=2.6.0
+Requires-Dist: packaging
+Requires-Dist: pybind11
+Requires-Dist: PyYAML
+Requires-Dist: sqlalchemy
+Provides-Extra: test
+Requires-Dist: pytest>=7.1.0; extra == "test"
+Requires-Dist: numpy>=1.26; extra == "test"
+Requires-Dist: scipy>=1.14; extra == "test"
+Requires-Dist: cupy-cuda12x; extra == "test"
+Dynamic: license-file
+
+[English|[中文版](./README_cn.md)]
+
+## Introduction
+
+FlagAudio is part of [FlagOS](https://flagos.io/).
+FlagAudio is a computing library that follows the BLAS standard interface and is oriented towards multiple chip backends. It defines core operations for numerical calculations such as vectors and matrices, supporting high-performance computing in fields such as scientific computing, engineering simulation, machine learning, and artificial intelligence.
+
+FlagAudio is a high-performance general-purpose operator library implemented using the [Triton programming language](https://github.com/openai/triton) launched by OpenAI.
+
+## Features
+
+- Operators have undergone deep performance tuning
+- Triton kernel call optimization
+- Flexible multi-backend support mechanism
+
+## Quick Installation
+### Install Dependencies
+```shell
+pip install -U scikit-build-core>=0.11 pybind11 ninja cmake
+```
+### Install FlagAudio
+```shell
+git clone https://github.com/flagos-ai/FlagAudio.git
+cd FlagAudio
+pip install  .
+```
+
+This project is licensed under the [Apache License (version 2.0)](./LICENSE).

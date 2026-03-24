@@ -5,17 +5,76 @@ import random
 import numpy as np
 import torch
 
-# import flag_gems
+import flag_audio
+import os
+import sys
+QUICK_MODE = False
+TO_CPU = False
+GEN_SHAPE = False
+try:
+    import conftest
+    if hasattr(conftest, 'QUICK_MODE'):
+        QUICK_MODE = conftest.QUICK_MODE
+    if hasattr(conftest, 'TO_CPU'):
+        TO_CPU = conftest.TO_CPU
+except (ImportError, AttributeError):
+    pass
 
-from .conftest import QUICK_MODE, TO_CPU
+fp64_is_supported = flag_audio.runtime.device.support_fp64
+bf16_is_supported = flag_audio.runtime.device.support_bf16
+int64_is_supported = flag_audio.runtime.device.support_int64
 
-fp64_is_supported = False #flag_gems.runtime.device.support_fp64
-bf16_is_supported = True #flag_gems.runtime.device.support_bf16
-int64_is_supported = False #flag_gems.runtime.device.support_int64
+from .conftest import L1_n_start
+from .conftest import L1_n_end
+from .conftest import L1_n_step
+L1_n_start_val = int(L1_n_start)
+L1_n_end_val = int(L1_n_end)
+L1_n_step_val = int(L1_n_step)
+print(L1_n_start_val)
+print(L1_n_end_val)
+print(L1_n_step_val)
+def gen_shape_N(n_start, n_end, n_inc):
+    shape_list = [(num,) for num in range(n_start, n_end + 1, n_inc)]
+    print(shape_list)
+    return shape_list
 
+DEFAULT_SHAPES = [(1024,),
+            (5333,),
+            (65536,),
+            (100000,),
+            (1048576,),
+            (3000000,),
+            (4194304,),
+            (10000000,),
+            (16777216,),
+            (33554432,),
+            (50000000,),
+            (67108864,),
+            (134217728,),]
 
-# def TestForwardOnly():
-#     return flag_gems.vendor_name in []
+### axpy shape
+AXPY_SHAPES = DEFAULT_SHAPES
+if GEN_SHAPE:
+    AXPY_SHAPES.clear()
+    AXPY_SHAPES=gen_shape_N(L1_n_start_val, L1_n_end_val, L1_n_step_val)
+###
+
+### asum shape
+ASUM_SHAPES = DEFAULT_SHAPES
+if GEN_SHAPE:
+    ASUM_SHAPES.clear()
+    ASUM_SHAPES=gen_shape_N(L1_n_start_val, L1_n_end_val, L1_n_step_val)
+###
+
+### scal shape
+SCAL_SHAPES = DEFAULT_SHAPES
+if GEN_SHAPE:
+    SCAL_SHAPES.clear()
+    SCAL_SHAPES=gen_shape_N(L1_n_start_val, L1_n_end_val, L1_n_step_val)
+###
+
+def TestForwardOnly():
+    return flag_audio.vendor_name in []
 
 
 def SkipVersion(module_name, skip_pattern):
@@ -66,6 +125,15 @@ SPECIAL_SHAPES = (
     if QUICK_MODE
     else [(1,), (1024, 1024), (20, 320, 15), (16, 128, 64, 1280), (16, 7, 57, 32, 29)]
 )
+
+FP8_QUANT_SHAPES = {
+    "DTYPES": [torch.bfloat16],
+    "NUM_TOKENS": [7] if QUICK_MODE else [7, 83, 2048],
+    "D": [512] if QUICK_MODE else [512, 4096, 5120, 13824],
+    "GROUP_SIZE": [512] if QUICK_MODE else [64, 128, 256, 512],
+    "SEEDS": [0],
+}
+
 DISTRIBUTION_SHAPES = [(20, 320, 15)]
 REDUCTION_SHAPES = [(2, 32)] if QUICK_MODE else [(1, 2), (4096, 256), (200, 40999, 3)]
 REDUCTION_SMALL_SHAPES = (
@@ -121,6 +189,28 @@ UPSAMPLE_SHAPES = [
     (3, 7, 1023, 1025),
 ]
 
+# 1D upsample uses (N, C, W) shapes derived from the 2D cases above.
+UPSAMPLE_SHAPES_1D = [s[:3] for s in UPSAMPLE_SHAPES]
+
+SWIGLU_SPECIAL_SHAPES = (
+    [(2, 19, 8)]
+    if QUICK_MODE
+    else [
+        (2,),
+        (64,),
+        (32, 64),
+        (256, 512),
+        (1, 128),
+        (8, 16, 32),
+        (16, 32, 64),
+        (20, 320, 16),
+        (4, 8, 16, 32),
+        (8, 16, 32, 64),
+        (10,),
+        (20, 30),
+    ]
+)
+
 KRON_SHAPES = [
     [(), (2, 3)],
     [(2, 3), ()],
@@ -160,6 +250,7 @@ FLOAT_DTYPES = (
     if bf16_is_supported
     else PRIMARY_FLOAT_DTYPES
 )
+
 ALL_FLOAT_DTYPES = FLOAT_DTYPES + [torch.float64] if fp64_is_supported else FLOAT_DTYPES
 INT_DTYPES = [torch.int16, torch.int32]
 ALL_INT_DTYPES = INT_DTYPES + [torch.int64] if int64_is_supported else INT_DTYPES
@@ -187,50 +278,20 @@ def to_reference(inp, upcast=False):
 
 
 def to_cpu(res, ref):
-    if TO_CPU:
+    if TO_CPU and isinstance(res, torch.Tensor) and isinstance(ref, torch.Tensor):
         res = res.to("cpu")
         assert ref.device == torch.device("cpu")
     return res
 
-
-import torch
-
-RESOLUTION = {
-    torch.bool: 0,
-    torch.int16: 0,
-    torch.int32: 0,
-    torch.float16: 1e-3,
-    torch.float32: 1.3e-6,
-    torch.bfloat16: 0.016,
-    torch.complex32: 1e-3,
-    torch.complex64: 1.3e-6,
-}
-
-
-def assert_close(res, ref, dtype, equal_nan=False, reduce_dim=1, atol=1e-4):
-    if dtype is None:
-        dtype = torch.float32
-    assert res.dtype == dtype
-    ref = ref.to(dtype)
-    real_atol = atol * reduce_dim
-    rtol = RESOLUTION[dtype]
-    torch.testing.assert_close(res, ref, atol=real_atol, rtol=rtol, equal_nan=equal_nan)
-
-
-def assert_equal(res, ref, equal_nan=False):
-    torch.testing.assert_close(res, ref, atol=0, rtol=0, equal_nan=equal_nan)
-
 def gems_assert_close(res, ref, dtype, equal_nan=False, reduce_dim=1, atol=1e-4):
     res = to_cpu(res, ref)
-    assert_close(
+    flag_audio.testing.assert_close(
         res, ref, dtype, equal_nan=equal_nan, reduce_dim=reduce_dim, atol=atol
     )
 
-
 def gems_assert_equal(res, ref, equal_nan=False):
     res = to_cpu(res, ref)
-    assert_equal(res, ref, equal_nan=equal_nan)
-
+    flag_audio.testing.assert_equal(res, ref, equal_nan=equal_nan)
 
 def unsqueeze_tuple(t, max_len):
     for _ in range(len(t), max_len):

@@ -8,9 +8,7 @@ import triton
 import torchaudio
 import sys
 
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from src import gain_triton,DB_to_amplitude_triton, mask_along_axis_iid_triton,mask_along_axis_triton, preemphasis_triton
+import flag_audio
 
 from .performance_utils import Benchmark, GenericBenchmark
 
@@ -40,7 +38,7 @@ def test_perf_gain(gain_db):
             torch.float32,
         ],
     )
-    bench.set_gems(gain_triton)
+    bench.set_gems(flag_audio.ops.gain_triton)
     bench.run()
 
 @pytest.mark.DB_to_amplitude
@@ -61,7 +59,7 @@ def test_perf_DB_to_amplitude(ref, power):
             torch.float32,
         ],
     )
-    bench.set_gems(DB_to_amplitude_triton)
+    bench.set_gems(flag_audio.ops.DB_to_amplitude_triton)
     bench.run()
 
 
@@ -93,7 +91,7 @@ def test_perf_mask_along_axis_iid(mask_param, mask_value, axis, p):
             torch.float32,
         ],
     )
-    bench.set_gems(mask_along_axis_iid_triton)
+    bench.set_gems(flag_audio.ops.mask_along_axis_iid_triton)
     bench.run()
 
 
@@ -117,7 +115,7 @@ def test_perf_mask_along_axis(mask_param, mask_value, axis, p):
             torch.float32,
         ],
     )
-    bench.set_gems(mask_along_axis_triton)
+    bench.set_gems(flag_audio.ops.mask_along_axis_triton)
     bench.run()
 
 @pytest.mark.preemphasis
@@ -137,7 +135,7 @@ def test_perf_preemphasis(coeff):
             torch.float32,
         ],
     )
-    bench.set_gems(preemphasis_triton)
+    bench.set_gems(flag_audio.ops.preemphasis_triton)
     bench.run()
 
 
