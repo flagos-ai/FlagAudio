@@ -31,14 +31,14 @@ def test_perf_gain(gain_db):
         return torchaudio.functional.gain(input, gain_db)
 
     bench = TorchaudioBenchmark(
-        op_name="scaled_dot_product_attention",
+        op_name="gain",
         input_fn=gain_input,
         torch_op= ref_op,
         dtypes=[
             torch.float32,
         ],
     )
-    bench.set_gems(flag_audio.ops.gain_triton)
+    bench.set_gems(flag_audio.ops.gain)
     bench.run()
 
 @pytest.mark.DB_to_amplitude
@@ -59,7 +59,7 @@ def test_perf_DB_to_amplitude(ref, power):
             torch.float32,
         ],
     )
-    bench.set_gems(flag_audio.ops.DB_to_amplitude_triton)
+    bench.set_gems(flag_audio.ops.DB_to_amplitude)
     bench.run()
 
 
@@ -70,7 +70,7 @@ class MaskAlongBenchmark(GenericBenchmark):
 
     def set_more_shapes(self):
         return None
-    
+
 @pytest.mark.mask_along_axis_iid
 @pytest.mark.parametrize("mask_param", [3])
 @pytest.mark.parametrize("mask_value", [0.0])
@@ -91,7 +91,7 @@ def test_perf_mask_along_axis_iid(mask_param, mask_value, axis, p):
             torch.float32,
         ],
     )
-    bench.set_gems(flag_audio.ops.mask_along_axis_iid_triton)
+    bench.set_gems(flag_audio.ops.mask_along_axis_iid)
     bench.run()
 
 
@@ -115,7 +115,7 @@ def test_perf_mask_along_axis(mask_param, mask_value, axis, p):
             torch.float32,
         ],
     )
-    bench.set_gems(flag_audio.ops.mask_along_axis_triton)
+    bench.set_gems(flag_audio.ops.mask_along_axis)
     bench.run()
 
 @pytest.mark.preemphasis
@@ -135,62 +135,5 @@ def test_perf_preemphasis(coeff):
             torch.float32,
         ],
     )
-    bench.set_gems(flag_audio.ops.preemphasis_triton)
+    bench.set_gems(flag_audio.ops.preemphasis)
     bench.run()
-
-
-# from benchmark.attri_util import FLOAT_DTYPES
-# from benchmark.performance_utils import (
-#     GenericBenchmark,
-#     GenericBenchmarkExcluse1D,
-#     binary_input_fn,
-# )
-
-# from .performance_utils import Benchmark, SkipVersion
-
-
-# @pytest.mark.skip_layernorm
-# def test_perf_skip_layernorm():
-#     def skip_layernorm_input_fn(shape, dtype, device):
-#         inp = torch.randn(shape, dtype=dtype, device=device)
-#         residual = torch.randn(shape, dtype=dtype, device=device)
-#         layer_shape = (shape[-1],)
-#         weight = torch.randn(layer_shape, dtype=dtype, device=device)
-#         bias = torch.randn(layer_shape, dtype=dtype, device=device)
-#         yield inp, residual, layer_shape, weight, bias
-
-#     def torch_op(inp, residual, layer_shape, weight, bias):
-#         return torch.layer_norm(inp + residual, layer_shape, weight, bias)
-
-#     gems_op = skip_layer_norm
-
-#     bench = GenericBenchmarkExcluse1D(
-#         input_fn=skip_layernorm_input_fn,
-#         op_name="skip_layernorm",
-#         torch_op=torch_op,
-#         dtypes=FLOAT_DTYPES,
-#     )
-#     bench.set_gems(gems_op)
-#     bench.run()
-
-# @pytest.mark.scaled_dot_product_attention
-# @pytest.mark.parametrize("gain_db", [6.0])
-# def test_perf_gain(gain_db):
-#     def gain_input(shape, dtype, device):
-#         print("device======", device)
-#         print("dtyp=====",dtype)
-#         print("shape====",shape)
-#         input = torch.randn(shape, device=device, dtype=dtype)
-#         yield input, gain_db
-
-#     bench = TorchaudioBenchmark(
-#         op_name="scaled_dot_product_attention",
-#         input_fn=gain_input,
-#         # torch_op=torch.nn.functional.scaled_dot_product_attention,
-#         torch_op=torchaudio.functional.gain,
-#         dtypes=[
-#             torch.float32,
-#         ],
-#     )
-#     bench.set_gems(DB_to_amplitude_triton)
-#     bench.run()

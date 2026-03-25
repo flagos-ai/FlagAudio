@@ -25,7 +25,7 @@ def gain_kernel(
     tl.store(output_ptr + offsets, output_vals, mask=mask)
 
 
-def gain_triton(input_tensor: torch.Tensor, gain_db: float = 1.0) -> torch.Tensor:
+def gain(input_tensor: torch.Tensor, gain_db: float = 1.0) -> torch.Tensor:
     if gain_db == 1.0:
         return input_tensor
 
@@ -48,7 +48,7 @@ def gain_triton(input_tensor: torch.Tensor, gain_db: float = 1.0) -> torch.Tenso
 def test_op():
     input_tensor = torch.tensor([0.5, 1.0, 1.5], dtype=torch.float32).to("cuda")
     gain_db = 6.0
-    output_tensor = gain_triton(input_tensor, gain_db)
+    output_tensor = gain(input_tensor, gain_db)
     golden_tensor = torchaudio.functional.gain(input_tensor, gain_db)
     torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)
     print(f"Output tensor: {output_tensor}")

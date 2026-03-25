@@ -50,7 +50,7 @@ def mask_along_axis_iid_kernel(
     tl.store(output_ptr + batch_id * total_elements + offsets, y, mask=mask)
 
 
-def mask_along_axis_iid_triton(
+def mask_along_axis_iid(
     specgrams: torch.Tensor,
     mask_param: int,
     mask_value: Union[float, torch.Tensor],
@@ -128,7 +128,7 @@ def test_op():
     axis = 3
     p = 1
     torch.rand = mock_rand
-    output_triton = mask_along_axis_iid_triton(
+    output_triton = mask_along_axis_iid(
         specgram, mask_param, mask_value, axis, p
     )
     golden_output = torchaudio.functional.mask_along_axis_iid(

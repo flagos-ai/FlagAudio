@@ -26,7 +26,7 @@ def DB_to_amplitude_triton_kernel(
     tl.store(output_ptr + offsets, result, mask=mask)
 
 
-def DB_to_amplitude_triton(x: torch.Tensor, ref: float, power: float) -> torch.Tensor:
+def DB_to_amplitude(x: torch.Tensor, ref: float, power: float) -> torch.Tensor:
 
     BLOCK_SIZE = 32
     n_elements = x.numel()
@@ -45,7 +45,7 @@ def test_op():
     x = torch.tensor([0.0, 10.0, 20.0], dtype=torch.float32).to("cuda")
     ref = 3.0
     power = 0.5
-    output_tensor = DB_to_amplitude_triton(x, ref, power)
+    output_tensor = DB_to_amplitude(x, ref, power)
     golden_tensor = torchaudio.functional.DB_to_amplitude(x, ref, power)
     torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)
     print(f"Output tensor: {output_tensor}")

@@ -36,7 +36,7 @@ def preemphasis_kernel(
     )
 
 
-def preemphasis_triton(waveform: torch.Tensor, coeff: float = 0.97) -> torch.Tensor:
+def preemphasis(waveform: torch.Tensor, coeff: float = 0.97) -> torch.Tensor:
     waveform_out = waveform.clone()
     waveform_view = waveform_out.reshape(-1, waveform.shape[-1])
 
@@ -64,7 +64,7 @@ def test_op():
         "cuda"
     )
     coeff = 0.97
-    output_tensor = preemphasis_triton(waveform, coeff)
+    output_tensor = preemphasis(waveform, coeff)
     golden_tensor = torchaudio.functional.preemphasis(waveform, coeff)
     torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)
     print(f"Output tensor: {output_tensor}")
