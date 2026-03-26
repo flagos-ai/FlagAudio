@@ -342,3 +342,9 @@ MaskAlongBenchmark:
   shapes:
     - [2,2,4,4]
     - [2,2,9,4]
+
+SpectralBenchmark:
+  shapes:
+    - [1000]
+    - [2, 1000]
+    - [3, 2, 1000]

@@ -3,5 +3,9 @@ gain
 mask_along_axis
 mask_along_axis_iid
 preemphasis
-
+mu_law_encoding
+amplitude_to_DB
+dcshift
+spectral_centroid
+add_noise
 

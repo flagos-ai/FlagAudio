@@ -92,3 +92,89 @@ def test_accuracy_preemphasis(shape, coeff, dtype):
     gems_assert_close(res_out, ref_out, dtype)
 
 
+@pytest.mark.mu_law_encoding
+@pytest.mark.parametrize("shape", [(3)])
+@pytest.mark.parametrize("dtype", [(torch.float32)])
+@pytest.mark.parametrize("quantization_channels", [256])
+def test_accuracy_mu_law_encoding(shape, dtype, quantization_channels):
+    input_tensor = torch.randn(shape, dtype=dtype, device=flag_audio.device)
+    ref_inp1_tensor = to_reference(input_tensor, True)
+
+    ref_out = torchaudio.functional.mu_law_encoding(ref_inp1_tensor, quantization_channels)
+
+    res_out = flag_audio.ops.mu_law_encoding(input_tensor, quantization_channels)
+
+    gems_assert_close(res_out, ref_out, torch.int64)
+
+
+@pytest.mark.amplitude_to_DB
+@pytest.mark.parametrize("shape", [(5, 2, 2, 2)])
+@pytest.mark.parametrize("dtype", [(torch.float32)])
+@pytest.mark.parametrize("multiplier", [3.0])
+@pytest.mark.parametrize("amin", [0.5])
+@pytest.mark.parametrize("db_multiplier", [1.0])
+@pytest.mark.parametrize("top_db", [None, 80.0])
+def test_accuracy_amplitude_to_DB(shape, dtype, multiplier, amin, db_multiplier, top_db):
+    input_tensor = torch.randn(shape, dtype=dtype, device=flag_audio.device)
+    ref_inp1_tensor = to_reference(input_tensor, True)
+
+    ref_out = torchaudio.functional.amplitude_to_DB(ref_inp1_tensor, multiplier, amin, db_multiplier, top_db=top_db)
+    res_out = flag_audio.ops.amplitude_to_DB(input_tensor, multiplier, amin, db_multiplier, top_db=top_db)
+
+    gems_assert_close(res_out, ref_out, dtype)
+
+
+@pytest.mark.dcshift
+@pytest.mark.parametrize("shape", [(2, 2)])
+@pytest.mark.parametrize("dtype", [(torch.float32)])
+@pytest.mark.parametrize("shift", [0.5])
+@pytest.mark.parametrize("limiter_gain", [None, 0.5])
+def test_accuracy_dcshift(shape, dtype, shift, limiter_gain):
+    input_tensor = torch.randn(shape, dtype=dtype, device=flag_audio.device)
+    ref_inp1_tensor = to_reference(input_tensor, True)
+
+    ref_out = torchaudio.functional.dcshift(ref_inp1_tensor, shift, limiter_gain)
+    res_out = flag_audio.ops.dcshift(input_tensor, shift, limiter_gain)
+
+    gems_assert_close(res_out, ref_out, dtype)
+
+
+@pytest.mark.spectral_centroid
+@pytest.mark.parametrize("shape", [(1000,), (2, 1000), (2, 2, 1000)])
+@pytest.mark.parametrize("dtype", [(torch.float32)])
+@pytest.mark.parametrize("sample_rate", [16000])
+@pytest.mark.parametrize("pad", [0, 1])
+@pytest.mark.parametrize("n_fft", [512])
+@pytest.mark.parametrize("hop_length", [160])
+@pytest.mark.parametrize("win_length", [400])
+def test_accuracy_spectral_centroid(shape, dtype, sample_rate, pad, n_fft, hop_length, win_length):
+    input_tensor = torch.randn(shape, dtype=dtype, device=flag_audio.device)
+    windows = torch.hann_window(win_length).to(flag_audio.device)
+    ref_inp1_tensor = to_reference(input_tensor, False)
+    ref_win_tensor = to_reference(windows, False)
+
+    ref_out = torchaudio.functional.spectral_centroid(ref_inp1_tensor, sample_rate, pad, ref_win_tensor, n_fft, hop_length, win_length)
+    res_out = flag_audio.ops.spectral_centroid(input_tensor, sample_rate, pad, ref_win_tensor, n_fft, hop_length, win_length)
+
+    gems_assert_close(res_out, ref_out, dtype)
+
+
+@pytest.mark.add_noise
+@pytest.mark.parametrize("shape", [(5, 2, 2, 8)])
+@pytest.mark.parametrize("dtype", [(torch.float32)])
+@pytest.mark.parametrize("length_factor", [None, 4])
+def test_accuracy_add_noise(shape, dtype, length_factor):
+    input_tensor = torch.randn(shape, dtype=dtype, device=flag_audio.device)
+    noise = torch.rand(shape, dtype=dtype, device=flag_audio.device)
+    snr = torch.rand(shape[:-1], dtype=dtype, device=flag_audio.device)
+    length = torch.ones_like(snr, dtype=torch.int64, device=flag_audio.device) * length_factor if length_factor is not None else None
+
+    ref_inp1_tensor = to_reference(input_tensor, False)
+    ref_noise_tensor = to_reference(noise, False)
+    ref_snr_tensor = to_reference(snr, False)
+    ref_length_tensor = to_reference(length, False) if length_factor is not None else None
+
+    ref_out = torchaudio.functional.add_noise(ref_inp1_tensor, ref_noise_tensor, ref_snr_tensor, lengths=ref_length_tensor)
+    res_out = flag_audio.ops.add_noise(ref_inp1_tensor, ref_noise_tensor, ref_snr_tensor, lengths=ref_length_tensor)
+
+    gems_assert_close(res_out, ref_out, dtype)
