@@ -69,8 +69,8 @@ ascend-cann900 = [
 mthreads = [
     "torch_musa==2.7.1",
     "torchaudio==2.7.1",
-    "flag_gems==5.3.0+mthreads3.6"
-    "flagtree==0.6.1+mthreads3.6"
+    "flag_gems==5.3.0+mthreads3.6",
+    "flagtree==0.6.1+mthreads3.6",
 ]
 
 nvidia-cuda128 = [
