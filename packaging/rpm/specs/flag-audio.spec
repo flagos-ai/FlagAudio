@@ -15,7 +15,7 @@
 # Reason: distro torch is CPU-only; users install GPU torch via pip.
 # See packaging/INSTALL.md (or future flagos-packaging install docs) for the
 # user-side pip install incantation.
-%global __requires_exclude ^python3(\.[0-9]+)?dist\((torch)\)$
+%global __requires_exclude ^python3([.][0-9]+)?dist[(]torch[)]( .*)?$
 Name:           python3-flag-audio
 Version:        0.1.0
 Release:        1%{?dist}
@@ -69,7 +69,9 @@ PYTHONDONTWRITEBYTECODE=1 \
 %else
 %files
 %{python3_sitelib}/flag_audio/
-%{python3_sitelib}/flag_audio-%{version}.dist-info/
+# Globbed: the dist-info is named for pyproject.toml's version, which a
+# release build may stamp differently in this spec.
+%{python3_sitelib}/flag_audio-*.dist-info/
 %endif
 %license LICENSE
 
