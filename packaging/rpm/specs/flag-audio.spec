@@ -17,7 +17,7 @@
 # user-side pip install incantation.
 %global __requires_exclude ^python3([.][0-9]+)?dist[(]torch[)]( .*)?$
 Name:           python3-flag-audio
-Version:        0.3.0
+Version:        0.1.0
 Release:        1%{?dist}
 Summary:        FlagAudio — audio processing kernels for FlagOS
 
@@ -76,8 +76,5 @@ PYTHONDONTWRITEBYTECODE=1 \
 %license LICENSE
 
 %changelog
-* Thu Sep 24 2026 FlagOS Contributors <contact@flagos.io> - 0.3.0-1
-- Sync package version to 0.3.0 (align pyproject and module __version__).
-
 * Wed May 13 2026 FlagOS Contributors <contact@flagos.io> - 0.1.0-1
 - Initial RPM packaging.
