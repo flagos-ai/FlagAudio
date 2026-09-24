@@ -69,7 +69,9 @@ PYTHONDONTWRITEBYTECODE=1 \
 %else
 %files
 %{python3_sitelib}/flag_audio/
-%{python3_sitelib}/flag_audio-%{version}.dist-info/
+# Globbed: the dist-info is named for pyproject.toml's version, which a
+# release build may stamp differently in this spec.
+%{python3_sitelib}/flag_audio-*.dist-info/
 %endif
 %license LICENSE
 
