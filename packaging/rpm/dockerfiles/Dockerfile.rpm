@@ -13,6 +13,15 @@ RUN dnf install -y \
         || echo "pyproject-rpm-macros unavailable; spec uses pip fallback") \
     && dnf clean all
 
+# openEuler images define %dist as empty; reconstruct it so the Release
+# carries the distro tag like official packages.
+RUN if [ -z "$(rpm --eval '%{?dist}')" ]; then \
+        . /etc/os-release && \
+        case "${ID}" in \
+            openEuler) echo "%dist .oe$(echo "${VERSION_ID}" | tr -d '.')" >> /root/.rpmmacros ;; \
+        esac; \
+    fi
+
 RUN rpmdev-setuptree
 
 COPY . /workspace/FlagAudio
