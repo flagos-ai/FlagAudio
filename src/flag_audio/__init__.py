@@ -31,7 +31,11 @@ registrar = Register
 current_work_registerar = None
 runtime.replace_customized_ops(globals())
 
-__version__ = "0.4.0"
+from importlib.metadata import version, PackageNotFoundError
+try:
+    __version__ = version("flag_audio")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 _FULL_CONFIG = (
     )
