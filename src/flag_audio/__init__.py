@@ -17,6 +17,9 @@ flag_audio - BLAS operations implemented with Triton
 """
 
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _metadata_version
+
 import torch
 from packaging import version
 from flag_audio import runtime
@@ -31,7 +34,10 @@ registrar = Register
 current_work_registerar = None
 runtime.replace_customized_ops(globals())
 
-__version__ = "0.3.0"
+try:
+    __version__ = _metadata_version("flag_audio")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 _FULL_CONFIG = (
     )
