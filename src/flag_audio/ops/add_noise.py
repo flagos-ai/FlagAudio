@@ -13,8 +13,13 @@
 # limitations under the License.
 
 import torch
+import torchaudio
+
+import flag_audio
 import triton
 import triton.language as tl
+
+from flag_gems.runtime import torch_device_fn
 
 
 @triton.jit
@@ -136,61 +141,66 @@ def add_noise(
     T = triton.cdiv(L, BLOCK_SIZE)  # 一条音频被切成多少段
     has_lengths = lengths is not None
 
-    # 中间缓冲区：每条音频、每段各一个部分和
-    partial_w = torch.empty(batch_size, T, device=waveform.device)
-    partial_n = torch.empty(batch_size, T, device=waveform.device)
+    with torch_device_fn.device(waveform.device):
+        # 中间缓冲区：每条音频、每段各一个部分和，固定使用 fp32 累加
+        partial_w = torch.empty(
+            batch_size, T, dtype=torch.float32, device=waveform.device
+        )
+        partial_n = torch.empty(
+            batch_size, T, dtype=torch.float32, device=waveform.device
+        )
 
-    # 阶段1：B*T 个 block，在 batch 维和 L 维上同时并行
-    partial_energy_kernel[(batch_size * T,)](
-        waveform_2d,
-        noise_2d,
-        lengths_flat,
-        partial_w,
-        partial_n,
-        L,
-        T,
-        has_lengths,
-        BLOCK_SIZE=BLOCK_SIZE,
-    )
+        # 阶段1：B*T 个 block，在 batch 维和 L 维上同时并行
+        partial_energy_kernel[(batch_size * T,)](
+            waveform_2d,
+            noise_2d,
+            lengths_flat,
+            partial_w,
+            partial_n,
+            L,
+            T,
+            has_lengths,
+            BLOCK_SIZE=BLOCK_SIZE,
+        )
 
-    # 阶段2：B 个 block 汇总部分和，算最终 scale
-    scale = torch.empty(batch_size, device=waveform.device)
-    finalize_scale_kernel[(batch_size,)](
-        partial_w,
-        partial_n,
-        snr_flat,
-        scale,
-        T,
-        FINALIZE_BLOCK=256,
-    )
+        # 阶段2：B 个 block 汇总部分和，算最终 scale
+        scale = torch.empty(
+            batch_size, dtype=torch.float32, device=waveform.device
+        )
+        finalize_scale_kernel[(batch_size,)](
+            partial_w,
+            partial_n,
+            snr_flat,
+            scale,
+            T,
+            FINALIZE_BLOCK=256,
+        )
 
-    # 分配输出
-    output = torch.empty_like(waveform_2d)
-    grid = (T, batch_size)
-    apply_noise_kernel[grid](
-        waveform_2d,
-        noise_2d,
-        scale,
-        output,
-        L,
-        BLOCK_SIZE=BLOCK_SIZE,
-    )
+        # 分配输出
+        output = torch.empty_like(waveform_2d)
+        grid = (T, batch_size)
+        apply_noise_kernel[grid](
+            waveform_2d,
+            noise_2d,
+            scale,
+            output,
+            L,
+            BLOCK_SIZE=BLOCK_SIZE,
+        )
 
     return output.reshape(waveform.shape)
 
 
 def test_op():
-    import torchaudio
-
-    x = torch.rand([5, 2, 2, 8], dtype=torch.float32).to("cuda")
-    noise = torch.rand(x.shape, dtype=torch.float32).to("cuda")
-    snr = torch.rand(x.shape[:-1], dtype=torch.float32).to("cuda")
+    x = torch.rand([5, 2, 2, 8], dtype=torch.float32).to(flag_audio.device)
+    noise = torch.rand(x.shape, dtype=torch.float32).to(flag_audio.device)
+    snr = torch.rand(x.shape[:-1], dtype=torch.float32).to(flag_audio.device)
 
     output_tensor = add_noise(x, noise, snr)
     golden_tensor = torchaudio.functional.add_noise(x, noise, snr)
     torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)
     
-    length = torch.ones_like(snr, dtype=torch.int64).to("cuda") * (x.shape[-1] // 2)
+    length = torch.ones_like(snr, dtype=torch.int64).to(flag_audio.device) * (x.shape[-1] // 2)
     output_tensor = add_noise(x, noise, snr, lengths=length)
     golden_tensor = torchaudio.functional.add_noise(x, noise, snr, lengths=length)
     torch.testing.assert_close(output_tensor, golden_tensor, rtol=1e-5, atol=1e-8)

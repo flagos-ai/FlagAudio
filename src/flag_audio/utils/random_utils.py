@@ -54,17 +54,35 @@ def philox_backend_seed_offset(increment, generator=None):
         device = torch_device_fn.current_device()
         generator = torch_device_fn.default_generators[device]
     state_copy = generator.get_state()
+    # 用 tolist() 一次性取出整数：对 tensor 做 c0, c1 = view(...) 迭代（unbind）
+    # 每次会额外创建两个 0-dim tensor，单次 kaiming_normal_ 调用约多耗 8us
+    state_view = state_copy.view(torch.int64)
+    state_ints = state_view.tolist()
     # TODO[kunlunxin]: we will upgrade torch version in 2025.04
     if flag_audio.vendor_name in ("kunlunxin", "aipu"):
-        c0, c1 = state_copy.view(torch.int64)[-2], state_copy.view(torch.int64)[-1]
+        c0, c1 = state_ints[-2], state_ints[-1]
+        offset_idx = -1
     else:
-        c0, c1 = state_copy.view(torch.int64)
+        c0, c1 = state_ints
+        offset_idx = 1
 
     seed, offset = int(c0), int(c1)
     increment = (increment + 3) // 4 * 4
-    c1 += increment
-    # get_state returns a new tensor, so it needs set_state to update the actual generator state.
-    generator.set_state(state_copy)
+    # set_state 每次重写整份 16 字节状态（H2D 拷贝并等待在途 kernel），
+    # 实测单次 15us+；推进 philox 计数器只需 set_offset，语义与 set_state
+    # 写回 offset 完全等价（get_state/graphsafe 状态同步更新）。
+    # 起始 offset 非 4 的倍数时仍走原路径，保持与 torch skipahead 的向下取整语义一致。
+    if (
+        flag_audio.vendor_name == "nvidia"
+        and offset_idx == 1
+        and offset % 4 == 0
+        and hasattr(generator, "set_offset")
+    ):
+        generator.set_offset(offset + increment)
+    else:
+        state_view[offset_idx] = c1 + increment
+        # get_state returns a new tensor, so it needs set_state to update the actual generator state.
+        generator.set_state(state_copy)
     return seed, offset
 
 

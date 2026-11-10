@@ -24,3 +24,6 @@ spectral_centroid
 add_noise
 convolve
 spectrogram
+contrast
+psd
+rtf_evd

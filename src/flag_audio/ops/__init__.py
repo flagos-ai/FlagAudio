@@ -23,6 +23,10 @@ from flag_audio.ops.dcshift import dcshift
 from flag_audio.ops.spectral_centroid import spectral_centroid
 from flag_audio.ops.add_noise import add_noise
 from flag_audio.ops.convolve import convolve
+from flag_audio.ops.kaiming_normal_ import kaiming_normal_
+from flag_audio.ops.contrast import contrast
+from flag_audio.ops.psd import psd
+from flag_audio.ops.rtf_evd import rtf_evd
 
 __all__ = [
     "DB_to_amplitude",
@@ -36,4 +40,8 @@ __all__ = [
     "spectral_centroid",
     "add_noise",
     "convolve",
+    "kaiming_normal_",
+    "contrast",
+    "psd",
+    "rtf_evd",
 ]
