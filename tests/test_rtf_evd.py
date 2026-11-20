@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
+
 import pytest
 import torch
 import torchaudio
@@ -20,6 +22,17 @@ import flag_audio
 
 
 pytestmark = pytest.mark.rtf_evd
+
+_RTF_DTYPES = [
+    torch.complex64,
+    pytest.param(
+        torch.complex128,
+        marks=pytest.mark.skipif(
+            not flag_audio.runtime.device.support_fp64,
+            reason="The current backend does not support FP64.",
+        ),
+    ),
+]
 
 
 def _random_psd(shape, dtype, rank=None):
@@ -30,6 +43,15 @@ def _random_psd(shape, dtype, rank=None):
     )
     psd = generator @ generator.conj().transpose(-1, -2) / max(rank, 1)
     return psd
+
+
+def _hermitian_with_spectrum(eigenvalues, dtype, seed=0):
+    torch.manual_seed(seed)
+    channel = eigenvalues.numel()
+    basis_seed = torch.randn(channel, channel, device=flag_audio.device, dtype=dtype)
+    basis = torch.linalg.qr(basis_seed).Q
+    diagonal = torch.diag(eigenvalues).to(dtype)
+    return basis @ diagonal @ basis.conj().T
 
 
 def _assert_principal_eigenvector(psd, actual, check_direction=True):
@@ -51,22 +73,24 @@ def _assert_principal_eigenvector(psd, actual, check_direction=True):
     effective_psd = lower + torch.triu(lower.conj().transpose(-1, -2), diagonal=1)
     effective_psd = effective_psd.clone()
     effective_psd.diagonal(dim1=-2, dim2=-1).imag.zero_()
-    product = (effective_psd @ actual.unsqueeze(-1)).squeeze(-1)
+    scale = effective_psd.abs().sum(-1).max(dim=-1).values
+    normalized_psd = effective_psd / scale.clamp_min(
+        torch.finfo(real_dtype).tiny
+    ).unsqueeze(-1).unsqueeze(-1)
+    product = (normalized_psd @ actual.unsqueeze(-1)).squeeze(-1)
     eigenvalue = (actual.conj() * product).sum(-1).real
     residual = product - eigenvalue.to(psd.dtype).unsqueeze(-1) * actual
     residual_norm = residual.abs().square().sum(-1).sqrt()
-    scale = effective_psd.abs().sum(-1).max(dim=-1).values
-    relative_residual = residual_norm / scale.clamp_min(1.0)
     torch.testing.assert_close(
-        relative_residual,
-        torch.zeros_like(relative_residual),
+        residual_norm,
+        torch.zeros_like(residual_norm),
         atol=tolerance,
         rtol=0.0,
     )
 
-    expected_eigenvalue = torch.linalg.eigvalsh(psd)[..., -1]
+    expected_eigenvalue = torch.linalg.eigvalsh(normalized_psd)[..., -1]
     relative_eigenvalue_error = (eigenvalue - expected_eigenvalue).abs() / (
-        expected_eigenvalue.abs().clamp_min(1.0)
+        expected_eigenvalue.abs().clamp_min(torch.finfo(real_dtype).tiny)
     )
     torch.testing.assert_close(
         relative_eigenvalue_error,
@@ -85,7 +109,7 @@ def _assert_principal_eigenvector(psd, actual, check_direction=True):
         )
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 @pytest.mark.parametrize(
     "shape",
     [
@@ -95,6 +119,9 @@ def _assert_principal_eigenvector(psd, actual, check_direction=True):
         (2, 3, 5, 8, 8),
         (2, 17, 16, 16),
         (1, 3, 32, 32),
+        (1, 2, 33, 33),
+        (1, 2, 64, 64),
+        (1, 1, 65, 65),
     ],
 )
 def test_random_psd(shape, dtype):
@@ -103,7 +130,7 @@ def test_random_psd(shape, dtype):
     _assert_principal_eigenvector(psd, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 @pytest.mark.parametrize("channel", [2, 4, 8])
 def test_rank_one_psd(dtype, channel):
     psd = _random_psd((2, 33, channel, channel), dtype, rank=1)
@@ -111,7 +138,7 @@ def test_rank_one_psd(dtype, channel):
     _assert_principal_eigenvector(psd, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_zero_psd(dtype):
     psd = torch.zeros(2, 5, 4, 4, device=flag_audio.device, dtype=dtype)
     actual = flag_audio.ops.rtf_evd(psd)
@@ -120,7 +147,7 @@ def test_zero_psd(dtype):
     torch.testing.assert_close(actual[..., 1:], torch.zeros_like(actual[..., 1:]))
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_repeated_principal_eigenvalue(dtype):
     eigenvalues = torch.diag(
         torch.tensor([1.0, 1.0, 0.5, 0.25], device=flag_audio.device)
@@ -132,7 +159,7 @@ def test_repeated_principal_eigenvalue(dtype):
     _assert_principal_eigenvector(psd, actual, check_direction=False)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_close_principal_eigenvalues(dtype):
     eigenvalues = torch.diag(
         torch.tensor([1.0, 0.993, 0.4, 0.2], device=flag_audio.device)
@@ -144,7 +171,44 @@ def test_close_principal_eigenvalues(dtype):
     _assert_principal_eigenvector(psd, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
+@pytest.mark.parametrize("channel", [4, 33])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_extreme_spectral_gap_multi_seed(dtype, channel, seed):
+    real_dtype = torch.float64 if dtype == torch.complex128 else torch.float32
+    second = 0.999999999999 if dtype == torch.complex128 else 0.999999
+    eigenvalues = torch.full((channel,), 0.1, device=flag_audio.device, dtype=real_dtype)
+    eigenvalues[0] = 1.0
+    eigenvalues[1] = second
+    matrix = _hermitian_with_spectrum(eigenvalues, dtype, seed)
+    actual = flag_audio.ops.rtf_evd(matrix)
+    _assert_principal_eigenvector(matrix, actual, check_direction=False)
+
+
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
+@pytest.mark.parametrize("channel", [4, 33])
+@pytest.mark.parametrize("scale", [-30, 30])
+def test_extreme_matrix_scale(dtype, channel, scale):
+    real_dtype = torch.float64 if dtype == torch.complex128 else torch.float32
+    exponent = scale if dtype == torch.complex64 else (200 if scale > 0 else -200)
+    eigenvalues = torch.linspace(0.1, 1.0, channel, device=flag_audio.device, dtype=real_dtype)
+    matrix = _hermitian_with_spectrum(eigenvalues, dtype) * (10.0**exponent)
+    actual = flag_audio.ops.rtf_evd(matrix)
+    _assert_principal_eigenvector(matrix, actual)
+
+
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
+@pytest.mark.parametrize("channel", [4, 33])
+def test_nonconvergence_returns_nan(dtype, channel, monkeypatch):
+    module = importlib.import_module("flag_audio.ops.rtf_evd")
+    monkeypatch.setattr(module, "_POWER_ITER", 0)
+    monkeypatch.setattr(module, "_SQUARE_ITER", 0)
+    matrix = _random_psd((channel, channel), dtype)
+    actual = flag_audio.ops.rtf_evd(matrix)
+    assert torch.isnan(actual).all()
+
+
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_general_hermitian_with_gershgorin_shift(dtype):
     seed = torch.randn(2, 3, 4, 4, device=flag_audio.device, dtype=dtype)
     psd = (seed + seed.conj().transpose(-1, -2)) / 2
@@ -152,16 +216,17 @@ def test_general_hermitian_with_gershgorin_shift(dtype):
     _assert_principal_eigenvector(psd, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
-def test_noncontiguous_and_conjugate_view(dtype):
-    psd = _random_psd((2, 5, 4, 4), dtype)
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
+@pytest.mark.parametrize("channel", [4, 33])
+def test_noncontiguous_and_conjugate_view(dtype, channel):
+    psd = _random_psd((2, 5, channel, channel), dtype)
     psd = psd.transpose(-1, -2).conj()
     assert not psd.is_contiguous()
     actual = flag_audio.ops.rtf_evd(psd)
     _assert_principal_eigenvector(psd, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_noncontiguous_batch_strides(dtype):
     psd = _random_psd((2, 3, 5, 4, 4), dtype)
     psd = psd.transpose(0, 1)
@@ -170,7 +235,7 @@ def test_noncontiguous_batch_strides(dtype):
     _assert_principal_eigenvector(psd, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_only_lower_triangle_is_read(dtype):
     psd = _random_psd((2, 3, 4, 4), dtype)
     corrupted = psd.clone()
@@ -193,7 +258,7 @@ def test_empty_input(shape):
     assert actual.numel() == 0
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
 def test_negative_dominant_hermitian(dtype):
     eigenvalues = torch.diag(
         torch.tensor([-5.0, 2.0, 1.0, 0.5], device=flag_audio.device)
@@ -205,13 +270,14 @@ def test_negative_dominant_hermitian(dtype):
     _assert_principal_eigenvector(matrix, actual)
 
 
-@pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
-def test_negative_definite_matrix(dtype):
-    diagonal = torch.tensor([-4.0, -3.0, -2.0, -1.0], device=flag_audio.device)
+@pytest.mark.parametrize("dtype", _RTF_DTYPES)
+@pytest.mark.parametrize("channel", [4, 33])
+def test_negative_definite_matrix(dtype, channel):
+    diagonal = torch.linspace(-4.0, -1.0, channel, device=flag_audio.device)
     matrix = torch.diag(diagonal).to(dtype)
     actual = flag_audio.ops.rtf_evd(matrix)
     _assert_principal_eigenvector(matrix, actual)
-    expected = torch.zeros(4, device=flag_audio.device, dtype=dtype)
+    expected = torch.zeros(channel, device=flag_audio.device, dtype=dtype)
     expected[-1] = 1.0
     torch.testing.assert_close(actual, expected)
 
@@ -239,10 +305,6 @@ def test_invalid_inputs():
     with pytest.raises(IndexError, match="out of bounds"):
         flag_audio.ops.rtf_evd(
             torch.empty(2, 3, 0, 0, device=flag_audio.device, dtype=torch.complex64)
-        )
-    with pytest.raises(ValueError, match="at most 32 channels"):
-        flag_audio.ops.rtf_evd(
-            torch.ones(33, 33, device=flag_audio.device, dtype=torch.complex64)
         )
     with pytest.raises(RuntimeError, match="autograd"):
         flag_audio.ops.rtf_evd(

@@ -155,10 +155,12 @@ def run_benchmark_and_parse(op, gpu_id, flagaudio_path, op_dir):
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     benchmark_dir = os.path.join(flagaudio_path, "benchmark")
+    results_dir = os.path.join(benchmark_dir, "results")
     ensure_dir(benchmark_dir)
+    ensure_dir(results_dir)
 
     pattern = f"result-m_{op}--level_core--record_log.log"
-    for p in Path(benchmark_dir).glob(pattern):
+    for p in Path(results_dir).glob(pattern):
         try:
             p.unlink()
         except Exception:
@@ -172,7 +174,7 @@ def run_benchmark_and_parse(op, gpu_id, flagaudio_path, op_dir):
         f.write(out + "\n" + err)
 
     perf_result_file = None
-    for p in Path(benchmark_dir).glob(pattern):
+    for p in Path(results_dir).glob(pattern):
         perf_result_file = str(p)
         break
 

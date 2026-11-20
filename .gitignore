@@ -3,6 +3,9 @@ __pycache__/
 .vscode/
 src/flag_audio.egg-info/
 result.json
+accuracy_result.json
+benchmark_result.json
+benchmark/results/
 zip/
 .trae/
 DEV_COMMANDS.md
@@ -10,3 +13,4 @@ tutorials/
 src/flag_audio/ops/contrast.py
 tests/test_contrast.py
 flaggems_triton_interview_guide.md
+项目说明与测试指南.md

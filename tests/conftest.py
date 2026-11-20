@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import fcntl
 import json
 import logging
 import os
-from datetime import datetime
 
 import pytest
 import torch
@@ -24,8 +24,21 @@ import flag_audio
 
 device = flag_audio.device
 
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-filename = f"test_detail_and_result_{timestamp}.json"
+REPORT_FILE = "accuracy_result.json"
+
+BUILTIN_MARKS = {
+    "filterwarnings",
+    "parametrize",
+    "skip",
+    "skipif",
+    "timeout",
+    "tryfirst",
+    "trylast",
+    "usefixtures",
+    "xfail",
+}
+REGISTERED_MARKERS = set()
+RUNTEST_INFO = {}
 
 DEFAULT_L1_N_START = 100
 DEFAULT_L1_N_END = 1000
@@ -36,6 +49,7 @@ L1_n_step = DEFAULT_L1_N_STEP
 TO_CPU = False
 QUICK_MODE = False
 RECORD_LOG = False
+RECORD_JSON = False
 
 
 def pytest_addoption(parser):
@@ -64,8 +78,13 @@ def pytest_addoption(parser):
         action="store",
         default="none",
         required=False,
-        choices=["none", "log"],
-        help="tests function param recorded in log files or not",
+        choices=["none", "log", "json"],
+        help="tests function param recorded in log/json files or not",
+    )
+
+    parser.addoption(
+        "--output",
+        help="path to the result file",
     )
 
     parser.addoption(
@@ -95,7 +114,21 @@ def pytest_configure(config):
 
     global RECORD_LOG
     RECORD_LOG = config.getoption("--record") == "log"
-    
+
+    global RECORD_JSON
+    RECORD_JSON = config.getoption("--record") == "json"
+
+    global REPORT_FILE
+    if RECORD_JSON:
+        report_file = config.getoption("--output")
+        if report_file:
+            REPORT_FILE = report_file
+
+    global REGISTERED_MARKERS
+    REGISTERED_MARKERS = {
+        marker.split(":")[0].strip() for marker in config.getini("markers")
+    }
+
     global L1_n_start
     L1_n_start = config.getoption("--L1_n_start")
 
@@ -107,22 +140,8 @@ def pytest_configure(config):
     
     
     if RECORD_LOG:
-        global RUNTEST_INFO, BUILTIN_MARKS, REGISTERED_MARKERS
+        global RUNTEST_INFO
         RUNTEST_INFO = {}
-        BUILTIN_MARKS = {
-            "parametrize",
-            "skip",
-            "skipif",
-            "xfail",
-            "usefixtures",
-            "filterwarnings",
-            "timeout",
-            "tryfirst",
-            "trylast",
-        }
-        REGISTERED_MARKERS = {
-            marker.split(":")[0].strip() for marker in config.getini("markers")
-        }
         cmd_args = [
             arg.replace(".py", "").replace("=", "_").replace("/", "_")
             for arg in config.invocation_params.args
@@ -176,13 +195,12 @@ def pytest_runtest_protocol(item, nextitem):
     test_results[item.nodeid]["params"] = param_values
     # get all mark
     all_marks = [mark.name for mark in item.iter_markers()]
-    # exclude marks，such as parametrize、skipif and so on
-    exclude_marks = {"parametrize", "skip", "skipif", "xfail", "usefixtures", "inplace"}
-    operator_marks = [mark for mark in all_marks if mark not in exclude_marks]
+    # exclude builtin marks, such as parametrize, skipif and so on
+    operator_marks = [mark for mark in all_marks if mark not in BUILTIN_MARKS]
     test_results[item.nodeid]["opname"] = operator_marks
 
 
-def get_skipped_reason(report):
+def get_reason(report):
     if hasattr(report.longrepr, "reprcrash"):
         return report.longrepr.reprcrash.message
     elif isinstance(report.longrepr, tuple):
@@ -193,28 +211,36 @@ def get_skipped_reason(report):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_logreport(report):
+    result = test_results.setdefault(
+        report.nodeid, {"params": None, "result": None, "opname": None}
+    )
     if report.when == "setup":
         if report.outcome == "skipped":
-            reason = get_skipped_reason(report)
-            test_results[report.nodeid]["result"] = "skipped"
-            test_results[report.nodeid]["skipped_reason"] = reason
+            reason = get_reason(report)
+            result["result"] = "skipped"
+            result["reason"] = reason
 
     elif report.when == "call":
-        test_results[report.nodeid]["result"] = report.outcome
-        if report.outcome == "skipped":
-            reason = get_skipped_reason(report)
-            test_results[report.nodeid]["skipped_reason"] = reason
+        result["result"] = report.outcome
+        if report.outcome in ["skipped", "failed"]:
+            reason = get_reason(report)
+            result["reason"] = reason
         else:
-            test_results[report.nodeid]["skipped_reason"] = None
+            result["reason"] = None
 
 
 def pytest_terminal_summary(terminalreporter):
-    if os.path.exists(filename):
-        with open(filename, "r") as json_file:
-            existing_data = json.load(json_file)
-        existing_data.update(test_results)
-    else:
-        existing_data = test_results
-
-    with open("result.json", "w") as json_file:
-        json.dump(existing_data, json_file, indent=4, default=str)
+    data = test_results
+    with open(REPORT_FILE, "a+") as json_file:
+        fcntl.flock(json_file, fcntl.LOCK_EX)
+        json_file.seek(0)
+        content = json_file.read()
+        if content:
+            existing_data = json.loads(content)
+            existing_data.update(test_results)
+            data = existing_data
+        json_file.seek(0)
+        json_file.truncate()
+        json.dump(data, json_file, indent=2, default=str)
+        json_file.flush()
+        os.fsync(json_file.fileno())

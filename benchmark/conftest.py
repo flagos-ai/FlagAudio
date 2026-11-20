@@ -39,8 +39,24 @@ vendor_name = flag_audio.vendor_name
 recordLogger = logging.getLogger("flag_audio_benchmark")
 recordLogger.propagate = False
 
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+REPORT_FILE = os.path.join(RESULTS_DIR, "benchmark_result.json")
+TEST_RESULTS = {}
+
+
+def update_result(op, data):
+    if not Config.record_json:
+        return
+
+    TEST_RESULTS.setdefault(op, {})
+    TEST_RESULTS[op].setdefault("details", [])
+    TEST_RESULTS[op]["details"].append(data)
+
 
 def emit_record_logger(message: str) -> None:
+    if not Config.record_log:
+        return
+
     if recordLogger.handlers:
         handler = recordLogger.handlers[0]
         if hasattr(handler, "_open") and getattr(handler, "stream", None) is None:
@@ -64,6 +80,7 @@ class BenchConfig:
             self.warm_up = 1
             self.repetition = 1
         self.record_log = False
+        self.record_json = False
         self.user_desired_dtypes = None
         self.user_desired_metrics = None
         self.shape_file = os.path.join(os.path.dirname(__file__), "core_shapes.yaml")
@@ -153,13 +170,19 @@ def pytest_addoption(parser):
         action="store",
         default="none",
         required=False,
-        choices=["none", "log"],
-        help="Benchmark info recorded in log files or not",
+        choices=["none", "log", "json"],
+        help="Benchmark info recorded in log/json files or not",
+    )
+    parser.addoption(
+        "--output",
+        default=REPORT_FILE,
+        help="Path to report file for JSON output",
     )
 
 
 def pytest_configure(config):
     global Config  # noqa: F824
+    global REPORT_FILE
     mode_value = config.getoption(
         "--mode" if vendor_name != "kunlunxin" else "--fg_mode"
     )
@@ -187,13 +210,21 @@ def pytest_configure(config):
     Config.shape_file = shape_file_str
 
     Config.record_log = config.getoption("--record") == "log"
+    Config.record_json = config.getoption("--record") == "json"
+    if Config.record_json:
+        REPORT_FILE = config.getoption("--output")
+    if Config.record_log or Config.record_json:
+        os.makedirs(RESULTS_DIR, exist_ok=True)
     if Config.record_log:
         cmd_args = [
             arg.replace(".py", "").replace("=", "_").replace("/", "_")
             for arg in config.invocation_params.args
         ]
 
-        log_file = "result_{}.log".format("_".join(cmd_args)).replace("_-", "-")
+        log_file = os.path.join(
+            RESULTS_DIR,
+            "result_{}.log".format("_".join(cmd_args)).replace("_-", "-"),
+        )
 
         for h in list(recordLogger.handlers):
             recordLogger.removeHandler(h)
@@ -209,7 +240,7 @@ def pytest_configure(config):
         handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
         recordLogger.addHandler(handler)
         recordLogger.setLevel(logging.INFO)
-        # emit_record_logger("Benchmark record logger enabled")
+        emit_record_logger("Benchmark record logger enabled")
 
 
 BUILTIN_MARKS = {
@@ -278,3 +309,69 @@ def extract_and_log_op_attributes(request):
     yield
     if Config.record_log and op_attributes:
         emit_record_logger(json.dumps(op_attributes, indent=2))
+
+
+def get_reason(report):
+    """Get reason for skipped or failed test."""
+    if hasattr(report.longrepr, "reprcrash"):
+        return report.longrepr.reprcrash.message
+
+    if isinstance(report.longrepr, tuple):
+        return report.longrepr[2]
+
+    return str(report.longrepr)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    out = yield
+    report = out.get_result()
+    all_marks = [mark.name for mark in item.iter_markers()]
+    # exclude builtin marks
+    marks = [mark for mark in all_marks if mark not in BUILTIN_MARKS]
+    # Assume the first mark is the operator's ID
+    opid = marks[0] if marks else item.nodeid
+    # Set the operator ID for the next function to use
+    report.opid = opid
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_logreport(report):
+    if not Config.record_json:
+        return
+
+    op = report.opid
+    TEST_RESULTS.setdefault(op, {})
+
+    if report.when == "setup":
+        if report.outcome == "skipped":
+            reason = get_reason(report)
+            TEST_RESULTS[op]["result"] = "skipped"
+            TEST_RESULTS[op]["reason"] = reason
+            TEST_RESULTS[op]["test_case"] = report.nodeid
+
+    elif report.when == "call":
+        TEST_RESULTS[op]["result"] = report.outcome
+        TEST_RESULTS[op]["test_case"] = report.nodeid
+
+        if report.outcome in ["skipped", "failed"]:
+            reason = get_reason(report)
+            TEST_RESULTS[op]["reason"] = reason
+        else:
+            TEST_RESULTS[op]["reason"] = None
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Combine and dump the result into JSON."""
+    if not Config.record_json:
+        return
+
+    data = TEST_RESULTS
+    if os.path.exists(REPORT_FILE):
+        with open(REPORT_FILE, "r") as f:
+            existing_data = json.load(f)
+        existing_data.update(TEST_RESULTS)
+        data = existing_data
+
+    with open(REPORT_FILE, "w") as f:
+        json.dump(data, f, indent=2, default=str)
