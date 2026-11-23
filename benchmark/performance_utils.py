@@ -16,6 +16,7 @@ import gc
 import importlib
 import os
 import time
+from dataclasses import asdict
 from typing import Any, Generator, List, Optional, Tuple
 
 import pytest
@@ -39,7 +40,7 @@ from .attri_util import (
     OperationAttribute,
     check_metric_dependencies,
 )
-from .conftest import Config, emit_record_logger
+from .conftest import Config, emit_record_logger, update_result
 
 torch_backend_device = flag_audio.runtime.torch_backend_device
 torch_device_fn = flag_audio.runtime.torch_device_fn
@@ -438,6 +439,7 @@ class Benchmark:
                 result=metrics,
             )
             print(result)
+            update_result(self.op_name, asdict(result))
             emit_record_logger(result.to_json())
 
 

@@ -279,3 +279,106 @@ def test_perf_add_noise(length_factor):
     )
     bench.set_gems(flag_audio.ops.add_noise)
     bench.run()
+
+
+@pytest.mark.convolve
+@pytest.mark.parametrize("mode", ["full", "same"])
+def test_perf_convolve(mode):
+    def convolve_input(shape, dtype, device):
+        b, n, m = shape
+        x = torch.randn(b, n, device=device, dtype=dtype)
+        # 共享核：y 前导维为 1，等价于所有信号复用同一条冲激响应
+        y = torch.randn(1, m, device=device, dtype=dtype)
+        # mode 是字符串，必须走 kwargs（unpack_to_args_kwargs 只透传张量/数字/None）
+        yield x, y, {"mode": mode}
+
+    def ref_op(x, y, mode):
+        return torchaudio.functional.convolve(x, y, mode)
+
+    bench = SpectralBenchmark(
+        op_name="convolve",
+        input_fn=convolve_input,
+        torch_op=ref_op,
+        dtypes=[
+            torch.float32,
+        ],
+    )
+    bench.set_gems(flag_audio.ops.convolve)
+    bench.run()
+
+
+@pytest.mark.kaiming_normal_
+def test_perf_kaiming_normal_():
+    def kaiming_normal_input(shape, dtype, device):
+        # in-place 初始化：同一 tensor 反复重初始化即可，无需每次重建
+        t = torch.empty(shape, device=device, dtype=dtype)
+        yield t, {"mode": "fan_in"}
+
+    def ref_op(t, mode):
+        return torch.nn.init.kaiming_normal_(t, mode=mode)
+
+    bench = SpectralBenchmark(
+        op_name="kaiming_normal_",
+        input_fn=kaiming_normal_input,
+        torch_op=ref_op,
+        dtypes=[
+            torch.float16,
+            torch.float32,
+        ],
+    )
+    bench.set_gems(flag_audio.ops.kaiming_normal_)
+    bench.run()
+
+
+@pytest.mark.psd
+# @pytest.mark.parametrize("has_mask", [False, True])
+# @pytest.mark.parametrize("normalize", [True, False])
+@pytest.mark.parametrize("has_mask,normalize", [
+    (False, True),   # 无 mask
+    (True, True),    # mask + 归一化
+])
+def test_perf_psd(has_mask, normalize):
+    def psd_input(shape, dtype, device):
+        b, ch, freq, time = shape
+        specgram = torch.randn(
+            b, ch, freq, time, device=device, dtype=torch.complex64
+        )
+        mask = torch.rand(b, freq, time, device=device) if has_mask else None
+        yield specgram, mask, normalize
+
+    def ref_op(specgram, mask, normalize):
+        return torchaudio.functional.psd(
+            specgram, mask=mask, normalize=normalize
+        )
+
+    bench = SpectralBenchmark(
+        op_name="psd",
+        input_fn=psd_input,
+        torch_op=ref_op,
+        dtypes=[torch.complex64],
+    )
+    bench.set_gems(flag_audio.ops.psd)
+    bench.run()
+
+
+@pytest.mark.rtf_evd
+def test_perf_rtf_evd():
+    def rtf_evd_input(shape, dtype, device):
+        batch, freq, channel, _ = shape
+        seed = torch.randn(
+            batch, freq, channel, channel, device=device, dtype=dtype
+        )
+        psd_s = seed @ seed.conj().transpose(-1, -2) / channel
+        yield psd_s,
+
+    def ref_op(psd_s):
+        return torchaudio.functional.rtf_evd(psd_s)
+
+    bench = SpectralBenchmark(
+        op_name="rtf_evd",
+        input_fn=rtf_evd_input,
+        torch_op=ref_op,
+        dtypes=[torch.complex64, torch.complex128],
+    )
+    bench.set_gems(flag_audio.ops.rtf_evd)
+    bench.run()

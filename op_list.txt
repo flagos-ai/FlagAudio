@@ -22,4 +22,9 @@ amplitude_to_DB
 dcshift
 spectral_centroid
 add_noise
+convolve
+kaiming_normal_
 spectrogram
+contrast
+psd
+rtf_evd
