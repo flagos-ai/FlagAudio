@@ -51,7 +51,7 @@ def test_accuracy_convolve(x_shape, y_shape, mode, dtype):
     ref_y = to_reference(y, False)
 
     ref_out = torchaudio.functional.convolve(ref_x, ref_y, mode)
-    res_out = flag_audio.ops.convolve(ref_x, ref_y, mode)
+    res_out = flag_audio.ops.convolve(x, y, mode)
 
     # 累加顺序与 cuDNN 不同（我们全程 fp32 顺序累加），按 dtype 放宽绝对容差
     atol = {
@@ -111,7 +111,7 @@ def test_accuracy_convolve_noncontiguous(mode):
     for x in (x_slice, x_transposed):
         assert not x.is_contiguous()
         ref_out = torchaudio.functional.convolve(to_reference(x, False), to_reference(y, False), mode)
-        res_out = flag_audio.ops.convolve(to_reference(x, False), to_reference(y, False), mode)
+        res_out = flag_audio.ops.convolve(x, y, mode)
         gems_assert_close(res_out, ref_out, torch.float32, atol=1e-4)
 
     # 非连续的核
@@ -120,7 +120,7 @@ def test_accuracy_convolve_noncontiguous(mode):
     assert not y_nc.is_contiguous()
     gems_assert_close(
         flag_audio.ops.convolve(x, y_nc, mode),
-        torchaudio.functional.convolve(x, y_nc, mode),
+        torchaudio.functional.convolve(to_reference(x, False), to_reference(y_nc, False), mode),
         torch.float32,
         atol=1e-4,
     )
@@ -131,7 +131,7 @@ def test_accuracy_convolve_large_batch():
     # 回归：batch 若落在 gridDim.y 会撞上 65535 上限而启动失败
     x = torch.randn(70000, 4, dtype=torch.float32, device=flag_audio.device)
     y = torch.randn(1, 4, dtype=torch.float32, device=flag_audio.device)
-    ref_out = torchaudio.functional.convolve(x, y, "full")
+    ref_out = torchaudio.functional.convolve(to_reference(x, False), to_reference(y, False), "full")
     res_out = flag_audio.ops.convolve(x, y, "full")
     gems_assert_close(res_out, ref_out, torch.float32, atol=1e-4)
 
@@ -143,7 +143,7 @@ def test_accuracy_convolve_mode_as_kwarg(mode):
     x = torch.randn(2, 40, dtype=torch.float32, device=flag_audio.device)
     y = torch.randn(1, 5, dtype=torch.float32, device=flag_audio.device)
     res_out = flag_audio.ops.convolve(x, y, mode=mode)
-    ref_out = torchaudio.functional.convolve(x, y, mode)
+    ref_out = torchaudio.functional.convolve(to_reference(x, False), to_reference(y, False), mode)
     gems_assert_close(res_out, ref_out, torch.float32, atol=1e-4)
 
 
@@ -156,11 +156,13 @@ def test_accuracy_convolve_large_magnitude():
     y = torch.randn(1, 400, dtype=torch.float32, device=flag_audio.device) * scale
     golden = torch.from_numpy(
         np.convolve(
-            x.double().cpu().numpy()[0],
-            y.double().cpu().numpy()[0],
+            x.cpu().double().numpy()[0],
+            y.cpu().double().numpy()[0],
             mode="full",
         )
     )
     got = flag_audio.ops.convolve(x, y, "full").cpu().double()[0]
+    assert torch.isfinite(golden).all() and golden.abs().max() > 0, "Invalid CPU reference"
+    assert torch.isfinite(got).all(), "Convolution output contains non-finite values"
     rel_err = (got - golden).abs().max() / golden.abs().max()
     assert rel_err < 1e-3, f"大幅度下相对误差过大: {rel_err:.3e}"

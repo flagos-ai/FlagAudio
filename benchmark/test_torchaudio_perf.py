@@ -35,6 +35,21 @@ class TorchaudioBenchmark(GenericBenchmark):
         return None
 
 
+@pytest.mark.contrast
+def test_perf_contrast():
+    def contrast_input(shape, dtype, device):
+        yield torch.randn(shape, device=device, dtype=dtype), 75.0
+
+    bench = TorchaudioBenchmark(
+        op_name="contrast",
+        input_fn=contrast_input,
+        torch_op=torchaudio.functional.contrast,
+        dtypes=[torch.float32],
+    )
+    bench.set_gems(flag_audio.ops.contrast)
+    bench.run()
+
+
 @pytest.mark.gain
 @pytest.mark.parametrize("gain_db", [6.0])
 def test_perf_gain(gain_db):
@@ -378,7 +393,11 @@ def test_perf_rtf_evd():
         op_name="rtf_evd",
         input_fn=rtf_evd_input,
         torch_op=ref_op,
-        dtypes=[torch.complex64, torch.complex128],
+        dtypes=(
+            [torch.complex64, torch.complex128]
+            if flag_audio.runtime.device.support_fp64
+            else [torch.complex64]
+        ),
     )
     bench.set_gems(flag_audio.ops.rtf_evd)
     bench.run()

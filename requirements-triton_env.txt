@@ -1,4 +1,5 @@
-# FlagAudio 开发环境依赖（conda 环境名：triton_env，Python 3.12）
+# FlagAudio 从零部署用依赖（conda 环境名：triton_env，Python 3.12）。
+# 已预装 torch 的测试环境不要运行本文件；参见 README_cn.md 的 --no-deps 安装方式。
 #
 # 从零安装步骤：
 #   conda create -n triton_env python=3.12 -y
@@ -24,7 +25,7 @@ flag_gems==5.3.6
 # 注意：flagtree 0.6.1 需要 GLIBC_2.38，本机不可用，未安装
 
 # --- CUDA Python 库（对应 CUDA 13）---
-# pyproject 中声明的 cupy-cuda12x 找不到 libcublas.so.12，改用 cuda13x 版本
+# 旧版测试 extra 的 cupy-cuda12x 找不到 libcublas.so.12；此从零部署示例使用 cuda13x
 cupy-cuda13x==14.2.0
 
 # --- 科学计算与测试 ---

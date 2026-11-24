@@ -117,13 +117,13 @@ def pytest_addoption(parser):
     parser.addoption(
         "--warmup",
         default=DEFAULT_WARMUP_COUNT,
-        help="Number of warmup runs before benchmark run.",
+        help="Warmup time in ms for kernel mode; number of runs for operator/wrapper mode.",
     )
 
     parser.addoption(
         "--iter",
         default=DEFAULT_ITER_COUNT,
-        help="Number of reps for each benchmark run.",
+        help="Measurement time in ms for kernel mode; number of runs for operator/wrapper mode.",
     )
 
     parser.addoption(

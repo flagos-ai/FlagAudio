@@ -19,6 +19,7 @@ import torch
 import torchaudio
 
 import flag_audio
+from .accuracy_utils import to_reference
 
 
 pytestmark = pytest.mark.rtf_evd
@@ -55,6 +56,10 @@ def _hermitian_with_spectrum(eigenvalues, dtype, seed=0):
 
 
 def _assert_principal_eigenvector(psd, actual, check_direction=True):
+    # Use the configured accuracy reference device. In particular, CoreX does
+    # not support all torch.linalg paths used by the reference checks on GPU.
+    psd = to_reference(psd, False)
+    actual = actual.to(psd.device)
     expected = torchaudio.functional.rtf_evd(psd)
     assert actual.shape == expected.shape
     assert actual.dtype == expected.dtype

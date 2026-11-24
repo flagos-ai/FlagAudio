@@ -22,17 +22,11 @@ import torch
 import flag_audio
 import os
 import sys
-QUICK_MODE = False
-TO_CPU = False
+from . import conftest
+
+QUICK_MODE = conftest.QUICK_MODE
+TO_CPU = conftest.TO_CPU
 GEN_SHAPE = False
-try:
-    import conftest
-    if hasattr(conftest, 'QUICK_MODE'):
-        QUICK_MODE = conftest.QUICK_MODE
-    if hasattr(conftest, 'TO_CPU'):
-        TO_CPU = conftest.TO_CPU
-except (ImportError, AttributeError):
-    pass
 
 fp64_is_supported = flag_audio.runtime.device.support_fp64
 bf16_is_supported = flag_audio.runtime.device.support_bf16
@@ -281,7 +275,7 @@ def to_reference(inp, upcast=False):
     if inp is None:
         return None
     ref_inp = inp
-    if TO_CPU:
+    if conftest.TO_CPU:
         ref_inp = ref_inp.to("cpu")
     if upcast:
         if ref_inp.is_complex():
@@ -292,9 +286,8 @@ def to_reference(inp, upcast=False):
 
 
 def to_cpu(res, ref):
-    if TO_CPU and isinstance(res, torch.Tensor) and isinstance(ref, torch.Tensor):
+    if isinstance(res, torch.Tensor) and isinstance(ref, torch.Tensor) and ref.device.type == "cpu":
         res = res.to("cpu")
-        assert ref.device == torch.device("cpu")
     return res
 
 def gems_assert_close(res, ref, dtype, equal_nan=False, reduce_dim=1, atol=1e-4):
