@@ -6,10 +6,11 @@ result.json
 accuracy_result.json
 benchmark_result.json
 benchmark/results/
+results_*/
 zip/
 .trae/
 DEV_COMMANDS.md
-tutorials/
+tutorials
 src/flag_audio/ops/contrast.py
 tests/test_contrast.py
 flaggems_triton_interview_guide.md

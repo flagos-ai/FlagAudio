@@ -14,9 +14,6 @@
 
 import pytest
 import torch
-import cupy as cp
-from cupy_backends.cuda.libs import cublas
-
 import flag_audio
 import torchaudio
 
@@ -167,7 +164,7 @@ def test_accuracy_spectral_centroid(shape, dtype, sample_rate, pad, n_fft, hop_l
     ref_win_tensor = to_reference(windows, False)
 
     ref_out = torchaudio.functional.spectral_centroid(ref_inp1_tensor, sample_rate, pad, ref_win_tensor, n_fft, hop_length, win_length)
-    res_out = flag_audio.ops.spectral_centroid(input_tensor, sample_rate, pad, ref_win_tensor, n_fft, hop_length, win_length)
+    res_out = flag_audio.ops.spectral_centroid(input_tensor, sample_rate, pad, windows, n_fft, hop_length, win_length)
 
     gems_assert_close(res_out, ref_out, dtype)
 

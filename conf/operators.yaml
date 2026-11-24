@@ -1,0 +1,98 @@
+# FlagGems-compatible operator inventory. The last stages entry is the current stage.
+ops:
+  - id: DB_to_amplitude
+    description: Convert decibels to linear amplitude.
+    for: [torchaudio.functional.DB_to_amplitude]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: add_noise
+    description: Add noise to a waveform at a requested signal-to-noise ratio.
+    for: [torchaudio.functional.add_noise]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: amplitude_to_DB
+    description: Convert linear amplitude to decibels.
+    for: [torchaudio.functional.amplitude_to_DB]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: contrast
+    description: Apply contrast enhancement to a waveform.
+    for: [torchaudio.functional.contrast]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: convolve
+    description: Convolve two waveforms.
+    for: [torchaudio.functional.convolve]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: dcshift
+    description: Shift the DC level of a waveform.
+    for: [torchaudio.functional.dcshift]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: gain
+    description: Apply gain in decibels to a waveform.
+    for: [torchaudio.functional.gain]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: kaiming_normal_
+    description: Initialize a tensor with Kaiming normal samples in place.
+    for: [torch.nn.init.kaiming_normal_]
+    labels: [torch, random]
+    kind: [NeuralNetwork]
+    stages: [{alpha: '0.1.0'}]
+  - id: mask_along_axis
+    description: Mask a contiguous region along a spectrogram axis.
+    for: [torchaudio.functional.mask_along_axis]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: mask_along_axis_iid
+    description: Independently mask regions along a spectrogram axis.
+    for: [torchaudio.functional.mask_along_axis_iid]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: mu_law_encoding
+    description: Encode a waveform with mu-law companding.
+    for: [torchaudio.functional.mu_law_encoding]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: preemphasis
+    description: Apply a pre-emphasis filter to a waveform.
+    for: [torchaudio.functional.preemphasis]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: psd
+    description: Estimate a power spectral density matrix.
+    for: [torchaudio.functional.psd]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: rtf_evd
+    description: Estimate a relative transfer function using eigenvalue decomposition.
+    for: [torchaudio.functional.rtf_evd]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: spectral_centroid
+    description: Compute spectral centroids of a waveform.
+    for: [torchaudio.functional.spectral_centroid]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]
+  - id: spectrogram
+    description: Compute a waveform spectrogram.
+    for: [torchaudio.functional.spectrogram]
+    labels: [torchaudio, audio]
+    kind: [Audio]
+    stages: [{alpha: '0.1.0'}]

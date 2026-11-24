@@ -50,7 +50,7 @@ def test_accuracy_add_noise(shape, dtype, length_ratio):
     ref_length_tensor = to_reference(length, False) if length_ratio is not None else None
 
     ref_out = torchaudio.functional.add_noise(ref_inp1_tensor, ref_noise_tensor, ref_snr_tensor, lengths=ref_length_tensor)
-    res_out = flag_audio.ops.add_noise(ref_inp1_tensor, ref_noise_tensor, ref_snr_tensor, lengths=ref_length_tensor)
+    res_out = flag_audio.ops.add_noise(input_tensor, noise, snr, lengths=length)
 
     # half 精度下 scale 的舍入路径与 torchaudio 不同（我们全程 fp32），
     # 差异实测仅 1~3 ULP，按 dtype 放宽绝对容差
